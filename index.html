@@ -30,6 +30,8 @@ const ANON_KEY = "sb_publishable_jC9euGa_BlDGH5Nd8Srhyg_nk-4YtEz";
 
 const q = new URLSearchParams(location.search);
 const app = document.getElementById("app");
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const fmtD = v => { if (!v) return ""; const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v); if (m) return MONTHS[+m[2]-1] + " " + (+m[3]) + ", " + m[1]; const d = new Date(v); return isNaN(d) ? v : MONTHS[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear(); };
 const money = n => "$" + Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -60,7 +62,7 @@ async function proposal(token) {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
         <div><div style="font-size:20px;font-weight:700">KMC Roofing &amp; Sheet Metal Inc.</div>
           <div class="mute">FL Lic. CCC1336468 &middot; (941) 757-8810<br>824 Manatee Ave W #24, Bradenton, FL 34205</div></div>
-        <div class="mute r">${p.date ? new Date(p.date + "T00:00").toLocaleDateString() : ""}</div></div>
+        <div class="mute r">${fmtD(p.date)}</div></div>
       <h2>${esc(p.title || "Proposal")}</h2>
       <div class="mute">Prepared for ${esc(c.name)}${addr ? " &middot; " + esc(addr) : ""}</div>
       <h3>Scope of work</h3>
@@ -92,7 +94,7 @@ async function proposal(token) {
   renderDeposit(d.deposit);
   const box = document.getElementById("sign");
   if (p.status === "signed") {
-    box.innerHTML = `<div class="ok">Signed by ${esc(p.signed_name)} on ${new Date(p.signed_at).toLocaleDateString()}</div>`;
+    box.innerHTML = `<div class="ok">Signed by ${esc(p.signed_name)} on ${fmtD(p.signed_at)}</div>`;
   } else {
     box.innerHTML = `<b>Accept this proposal</b><input id="nm" placeholder="Type your full name to sign" autocomplete="name">
       <button id="go">Sign &amp; accept</button>`;
@@ -129,7 +131,7 @@ async function invoice(token) {
   app.innerHTML = `<div class="card"><h2 style="margin-top:0">Invoice #${esc(d.number)}</h2>
     <div class="mute">${esc(d.customer)}</div>
     <p style="font-size:28px;margin:12px 0">${money(d.amount)}</p>
-    <div class="${d.status === "paid" ? "ok" : ""}">${d.status === "paid" ? "Paid — thank you!" : "Due " + esc(d.due_date || "on receipt")}</div>
+    <div class="${d.status === "paid" ? "ok" : ""}">${d.status === "paid" ? "Paid — thank you!" : "Due " + esc(d.due_date ? fmtD(d.due_date) : "on receipt")}</div>
     ${d.status === "paid" ? "" : payButton(d.link, "Pay invoice online") || '<p class="mute">To pay, call (941) 757-8810.</p>'}</div>`;
 }
 
