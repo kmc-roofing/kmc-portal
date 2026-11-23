@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KMC Roofing — Customer Portal</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f7;margin:0;color:#1b1f24}
+  header{background:#12263f;color:#fff;padding:18px 20px;font-weight:700;font-size:18px}
+  main{max-width:640px;margin:0 auto;padding:16px}
+  .card{background:#fff;border:1px solid #e1e4e8;border-radius:10px;padding:16px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse}td,th{padding:8px 4px;border-bottom:1px solid #eee;text-align:left}
+  td.r,th.r{text-align:right}
+  input{width:100%;box-sizing:border-box;padding:12px;font-size:16px;border:1px solid #cfd4da;border-radius:8px;margin:8px 0}
+  button{background:#12263f;color:#fff;border:0;padding:13px 18px;border-radius:8px;font-size:16px;width:100%}
+  .ok{color:#1a7f37;font-weight:700}.mute{color:#6b7280;font-size:13px}
+</style>
+</head>
+<body>
+<header>KMC Roofing &amp; Sheet Metal</header>
+<main id="app"><div class="card">Loading…</div></main>
+<script>
+// Fill these two in after you create your Supabase project. The anon key is safe to expose:
+// the portal can only call the three token-gated functions defined in 001_schema.sql.
+const SUPABASE_URL = "https://ohucgckgwpadjgkkjpax.supabase.co";
+const ANON_KEY = "sb_publishable_jC9euGa_BlDGH5Nd8Srhyg_nk-4YtEz";
+
+const q = new URLSearchParams(location.search);
+const app = document.getElementById("app");
+const money = n => "$" + Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function rpc(fn, args) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify(args)
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function proposal(token) {
+  const d = await rpc("portal_get_proposal", { token });
+  if (!d) { app.innerHTML = '<div class="card">This link is not valid or has expired.</div>'; return; }
+  const sub = d.items.reduce((a, i) => a + i.qty * i.price, 0);
+  const tax = sub * Number(d.estimate.tax_rate);
+  const p = d.proposal;
+  app.innerHTML = `
+    <div class="card"><h2 style="margin-top:0">Proposal for ${esc(d.customer.name)}</h2>
+      <div class="mute">${esc(d.customer.address)}</div><p>${esc(p.scope)}</p>
+      <table><tr><th>Item</th><th class="r">Qty</th><th class="r">Amount</th></tr>
+      ${d.items.map(i => `<tr><td>${esc(i.description)}</td><td class="r">${i.qty} ${esc(i.unit)}</td><td class="r">${money(i.qty * i.price)}</td></tr>`).join("")}
+      <tr><td colspan="2">Tax</td><td class="r">${money(tax)}</td></tr>
+      ${d.deposit && d.deposit.cash_discount ? `<tr><td colspan="2">Cash discount (5%)</td><td class="r">-${money(sub + tax - d.deposit.contract_total)}</td></tr>` : ""}
+      <tr><td colspan="2"><b>Total</b></td><td class="r"><b>${money(d.deposit ? d.deposit.contract_total : sub + tax)}</b></td></tr></table></div>
+    <div class="card"><b>Terms</b><p class="mute">${esc(p.terms)}</p></div>
+    <div class="card" id="dep"></div>
+    <div class="card" id="sign"></div>`;
+  renderDeposit(d.deposit);
+  const box = document.getElementById("sign");
+  if (p.status === "signed") {
+    box.innerHTML = `<div class="ok">Signed by ${esc(p.signed_name)} on ${new Date(p.signed_at).toLocaleDateString()}</div>`;
+  } else {
+    box.innerHTML = `<b>Accept this proposal</b><input id="nm" placeholder="Type your full name to sign" autocomplete="name">
+      <button id="go">Sign &amp; accept</button>`;
+    document.getElementById("go").onclick = async () => {
+      const name = document.getElementById("nm").value;
+      const ok = await rpc("portal_sign_proposal", { token, signer: name });
+      if (ok) proposal(token); else alert("Please type your full name.");
+    };
+  }
+}
+
+function payButton(link, label) {
+  // Only ever link to https pages (the admin pastes this from QuickBooks).
+  if (!link || !/^https:\/\//i.test(link)) return "";
+  return `<a href="${esc(link)}" style="display:block;text-align:center;background:#2ca01c;color:#fff;padding:14px;border-radius:8px;text-decoration:none;font-size:16px;margin-top:10px">${label}</a>`;
+}
+function renderDeposit(dep) {
+  const box = document.getElementById("dep");
+  if (!dep) { box.remove(); return; }
+  const how = { check: "by check", cash: "in cash", quickbooks: "online" }[dep.method];
+  let status = "";
+  if (dep.status === "paid") status = '<div class="ok">Deposit received. Thank you!</div>';
+  else if (dep.method === "quickbooks" && dep.link) status = payButton(dep.link, "Pay deposit online");
+  else if (dep.method === "quickbooks") status = '<div class="mute">Your payment link is being prepared and will be sent shortly.</div>';
+  else status = '<div class="mute">Please have your deposit ready ' + how + '.</div>';
+  box.innerHTML = `<b>Deposit due: ${money(dep.amount)}</b> <span class="mute">(${how})</span>${status}`;
+}
+
+async function invoice(token) {
+  const d = await rpc("portal_get_invoice", { token });
+  if (!d) { app.innerHTML = '<div class="card">This link is not valid.</div>'; return; }
+  app.innerHTML = `<div class="card"><h2 style="margin-top:0">Invoice #${esc(d.number)}</h2>
+    <div class="mute">${esc(d.customer)}</div>
+    <p style="font-size:28px;margin:12px 0">${money(d.amount)}</p>
+    <div class="${d.status === "paid" ? "ok" : ""}">${d.status === "paid" ? "Paid — thank you!" : "Due " + esc(d.due_date || "on receipt")}</div>
+    ${d.status === "paid" ? "" : payButton(d.link, "Pay invoice online") || '<p class="mute">To pay, call (941) 757-8810.</p>'}</div>`;
+}
+
+(async () => {
+  try {
+    if (q.get("p")) await proposal(q.get("p"));
+    else if (q.get("i")) await invoice(q.get("i"));
+    else app.innerHTML = '<div class="card">Open the link we sent you.</div>';
+  } catch (e) { app.innerHTML = '<div class="card">Something went wrong. Please call (941) 757-8810.</div>'; }
+})();
+</script>
+</body>
+</html>
