@@ -147,10 +147,31 @@ async function invoice(token) {
     ${d.status === "paid" ? "" : payButton(d.link, "Pay invoice online") || '<p class="mute">To pay, call (941) 757-8810.</p>'}</div>`;
 }
 
+async function changeOrder(token) {
+  const d = await rpc("portal_get_change_order", { token });
+  if (!d) { app.innerHTML = '<div class="card">This link is not valid or has expired.</div>'; return; }
+  const done = d.status === "approved";
+  app.innerHTML = `<div class="card"><h2 style="margin-top:0">Additional work approval</h2>
+    <div class="mute">${esc(d.customer)}${d.address ? " &middot; " + esc(d.address) : ""}<br>${esc(d.project || "")}</div>
+    <p style="white-space:pre-wrap;margin:14px 0">${esc(d.description)}</p>
+    <p style="font-size:28px;margin:8px 0">${money(d.amount)}</p>
+    ${done ? `<div class="ok">Approved by ${esc(d.approved_name)} on ${fmtD(d.approved_at)}. Thank you!</div>` :
+      `<p class="mute">By typing your name below, you approve this additional work and price. It will be added to your contract total.</p>
+       <input id="nm" placeholder="Type your full name" style="width:100%;padding:12px;font-size:16px;margin:8px 0;box-sizing:border-box">
+       <button id="ok">Approve additional work</button><div id="err" class="mute"></div>`}</div>`;
+  if (!done) document.getElementById("ok").onclick = async () => {
+    const name = document.getElementById("nm").value.trim();
+    if (!name) { document.getElementById("err").textContent = "Please type your full name."; return; }
+    try { await rpc("portal_approve_change_order", { token, signer: name }); await changeOrder(token); }
+    catch (e) { document.getElementById("err").textContent = "Could not save. Please call (941) 757-8810."; }
+  };
+}
+
 (async () => {
   try {
     if (q.get("p")) await proposal(q.get("p"));
     else if (q.get("i")) await invoice(q.get("i"));
+    else if (q.get("c")) await changeOrder(q.get("c"));
     else app.innerHTML = '<div class="card">Open the link we sent you.</div>';
   } catch (e) { app.innerHTML = '<div class="card">Something went wrong. Please call (941) 757-8810.</div>'; }
 })();
