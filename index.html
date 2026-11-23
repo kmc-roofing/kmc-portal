@@ -51,6 +51,7 @@ async function proposal(token) {
   const p = d.proposal, c = d.customer;
   const tiers = p.tiers || [];
   const builder = (p.price_lines || []).length > 0 || tiers.length > 0;
+  const interactive = p.status !== "signed" && !d.deposit;
   let body;
   if (builder) {
     const addr = [c.address, [c.city, c.state].filter(Boolean).join(", "), c.zip].filter(Boolean).join(" ");
@@ -68,13 +69,13 @@ async function proposal(token) {
       <h3>Scope of work</h3>
       <ul>${(p.scope_items || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
       ${tiers.length ? `<h3>${p.selected_tier ? "Your selection" : "Choose your option"}</h3>
-      ${tiers.filter(t => !p.selected_tier || t.name === p.selected_tier).map(t => `<label class="tier"><input type="radio" name="tier" value="${esc(t.name)}" ${p.selected_tier ? "checked disabled" : ""} style="width:auto;margin:0 10px 0 0"><span style="flex:1"><b>${esc(t.name)}</b><div class="mute">${esc(t.description || "")}</div></span><b>${money(t.amount)}</b></label>`).join("")}` : ""}
+      ${tiers.filter(t => !p.selected_tier || t.name === p.selected_tier).map(t => `<label class="tier"><input type="radio" name="tier" value="${esc(t.name)}" data-amt="${Number(t.amount)}" ${p.selected_tier ? "checked disabled" : ""} style="width:auto;margin:0 10px 0 0"><span style="flex:1"><b>${esc(t.name)}</b><div class="mute">${esc(t.description || "")}</div></span><b>${money(t.amount)}</b></label>`).join("")}` : ""}
       <h3>${tiers.length ? "Add-ons" : "Price"}</h3>
       <table>${p.price_lines.map(l => `<tr><td>${esc(l.name)}</td><td class="r">${money(l.amount)}</td></tr>`).join("")}
-      ${chosen.map(o => `<tr><td>${esc(o.name)}</td><td class="r">${money(o.amount)}</td></tr>`).join("")}
+      ${interactive ? "" : chosen.map(o => `<tr><td>${esc(o.name)}</td><td class="r">${money(o.amount)}</td></tr>`).join("")}
       ${d.deposit && d.deposit.cash_discount ? `<tr><td>Cash discount (5%)</td><td class="r">-${money(base - total)}</td></tr>` : ""}
-      ${tiers.length && !p.selected_tier ? "" : `<tr><td><b>Total bid</b></td><td class="r"><b>${money(total)}</b></td></tr>`}</table>
-      ${offered.length ? `<h3>Optional upgrades</h3><table>${offered.map(o => `<tr><td>${esc(o.name)}<div class="mute">${esc(o.description || "")}</div></td><td class="r">+${money(o.amount)}</td></tr>`).join("")}</table>` : ""}
+      ${interactive ? `<tr><td><b>Total bid</b></td><td class="r"><b id="tot">${tiers.length ? "Choose an option above" : money(total)}</b></td></tr>` : (tiers.length && !p.selected_tier ? "" : `<tr><td><b>Total bid</b></td><td class="r"><b>${money(total)}</b></td></tr>`)}</table>
+      ${interactive && opts.length ? `<h3>Optional upgrades</h3><div class="mute" style="margin-bottom:6px">Tap to add an upgrade. Your total updates below.</div>${opts.map(o => `<label class="tier"><input type="checkbox" class="opt" data-name="${esc(o.name)}" data-amt="${Number(o.amount)}" ${o.selected ? "checked" : ""} style="width:auto;margin:0 10px 0 0"><span style="flex:1"><b>${esc(o.name)}</b><div class="mute">${esc(o.description || "")}</div></span><b>+${money(o.amount)}</b></label>`).join("")}` : offered.length ? `<h3>Optional upgrades</h3><table>${offered.map(o => `<tr><td>${esc(o.name)}<div class="mute">${esc(o.description || "")}</div></td><td class="r">+${money(o.amount)}</td></tr>`).join("")}</table>` : ""}
       ${p.terms ? `<h3>Terms</h3><p class="mute">${esc(p.terms)}</p>` : ""}
       <button id="pr" class="noprint" style="background:#666;margin-top:12px">Print / save as PDF</button></div>`;
   } else {
@@ -91,6 +92,16 @@ async function proposal(token) {
   }
   app.innerHTML = body + `<div class="card noprint" id="dep"></div><div class="card noprint" id="sign"></div>`;
   const pr = document.getElementById("pr"); if (pr) pr.onclick = () => window.print();
+  const recalc = () => {
+    const tot = document.getElementById("tot"); if (!tot) return;
+    const sel = document.querySelector('input[name="tier"]:checked');
+    if (tiers.length && !sel) { tot.textContent = "Choose an option above"; return; }
+    let t = (p.price_lines || []).reduce((a, l) => a + Number(l.amount), 0) + (sel ? Number(sel.dataset.amt) : 0);
+    document.querySelectorAll(".opt").forEach(x => { if (x.checked) t += Number(x.dataset.amt); });
+    tot.textContent = money(t);
+  };
+  document.querySelectorAll('input[name="tier"], .opt').forEach(x => x.addEventListener("change", recalc));
+  recalc();
   renderDeposit(d.deposit);
   const box = document.getElementById("sign");
   if (p.status === "signed") {
@@ -102,7 +113,8 @@ async function proposal(token) {
       const name = document.getElementById("nm").value;
       const sel = document.querySelector('input[name="tier"]:checked');
       if (tiers.length && !sel) { alert("Please choose Good, Better or Best first."); return; }
-      const ok = await rpc("portal_sign_proposal", { token, signer: name, tier: sel ? sel.value : null });
+      const picks = interactive && document.querySelector(".opt") ? [...document.querySelectorAll(".opt")].filter(x => x.checked).map(x => x.dataset.name) : null;
+      const ok = await rpc("portal_sign_proposal", { token, signer: name, tier: sel ? sel.value : null, picks });
       if (ok) proposal(token); else alert("Please type your full name.");
     };
   }
