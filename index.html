@@ -14,6 +14,8 @@
   input{width:100%;box-sizing:border-box;padding:12px;font-size:16px;border:1px solid #cfd4da;border-radius:8px;margin:8px 0}
   button{background:#12263f;color:#fff;border:0;padding:13px 18px;border-radius:8px;font-size:16px;width:100%}
   .ok{color:#1a7f37;font-weight:700}.mute{color:#6b7280;font-size:13px}
+@media print{.noprint{display:none!important}body{background:#fff}.card{box-shadow:none;border:0}}
+h3{margin:16px 0 6px;font-size:15px}
 </style>
 </head>
 <body>
@@ -43,20 +45,46 @@ async function rpc(fn, args) {
 async function proposal(token) {
   const d = await rpc("portal_get_proposal", { token });
   if (!d) { app.innerHTML = '<div class="card">This link is not valid or has expired.</div>'; return; }
-  const sub = d.items.reduce((a, i) => a + i.qty * i.price, 0);
-  const tax = sub * Number(d.estimate.tax_rate);
-  const p = d.proposal;
-  app.innerHTML = `
-    <div class="card"><h2 style="margin-top:0">Proposal for ${esc(d.customer.name)}</h2>
-      <div class="mute">${esc(d.customer.address)}</div><p>${esc(p.scope)}</p>
+  const p = d.proposal, c = d.customer;
+  const builder = (p.price_lines || []).length > 0;
+  let body;
+  if (builder) {
+    const addr = [c.address, [c.city, c.state].filter(Boolean).join(", "), c.zip].filter(Boolean).join(" ");
+    const opts = (p.options || []);
+    const chosen = opts.filter(o => o.selected), offered = opts.filter(o => !o.selected);
+    const base = Number(p.base_total);
+    const total = d.deposit ? Number(d.deposit.contract_total) : base;
+    body = `<div class="card" id="doc">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+        <div><div style="font-size:20px;font-weight:700">KMC Roofing &amp; Sheet Metal Inc.</div>
+          <div class="mute">FL Lic. CCC1336468 &middot; (941) 757-8810<br>824 Manatee Ave W #24, Bradenton, FL 34205</div></div>
+        <div class="mute r">${p.date ? new Date(p.date + "T00:00").toLocaleDateString() : ""}</div></div>
+      <h2>${esc(p.title || "Proposal")}</h2>
+      <div class="mute">Prepared for ${esc(c.name)}${addr ? " &middot; " + esc(addr) : ""}</div>
+      <h3>Scope of work</h3>
+      <ul>${(p.scope_items || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+      <h3>Price</h3>
+      <table>${p.price_lines.map(l => `<tr><td>${esc(l.name)}</td><td class="r">${money(l.amount)}</td></tr>`).join("")}
+      ${chosen.map(o => `<tr><td>${esc(o.name)}</td><td class="r">${money(o.amount)}</td></tr>`).join("")}
+      ${d.deposit && d.deposit.cash_discount ? `<tr><td>Cash discount (5%)</td><td class="r">-${money(base - total)}</td></tr>` : ""}
+      <tr><td><b>Total bid</b></td><td class="r"><b>${money(total)}</b></td></tr></table>
+      ${offered.length ? `<h3>Optional upgrades</h3><table>${offered.map(o => `<tr><td>${esc(o.name)}<div class="mute">${esc(o.description || "")}</div></td><td class="r">+${money(o.amount)}</td></tr>`).join("")}</table>` : ""}
+      ${p.terms ? `<h3>Terms</h3><p class="mute">${esc(p.terms)}</p>` : ""}
+      <button id="pr" class="noprint" style="background:#666;margin-top:12px">Print / save as PDF</button></div>`;
+  } else {
+    const sub = d.items.reduce((a, i) => a + i.qty * i.price, 0);
+    const tax = sub * Number((d.estimate || {}).tax_rate || 0);
+    body = `<div class="card"><h2 style="margin-top:0">Proposal for ${esc(c.name)}</h2>
+      <div class="mute">${esc(c.address)}</div><p>${esc(p.scope)}</p>
       <table><tr><th>Item</th><th class="r">Qty</th><th class="r">Amount</th></tr>
       ${d.items.map(i => `<tr><td>${esc(i.description)}</td><td class="r">${i.qty} ${esc(i.unit)}</td><td class="r">${money(i.qty * i.price)}</td></tr>`).join("")}
       <tr><td colspan="2">Tax</td><td class="r">${money(tax)}</td></tr>
       ${d.deposit && d.deposit.cash_discount ? `<tr><td colspan="2">Cash discount (5%)</td><td class="r">-${money(sub + tax - d.deposit.contract_total)}</td></tr>` : ""}
       <tr><td colspan="2"><b>Total</b></td><td class="r"><b>${money(d.deposit ? d.deposit.contract_total : sub + tax)}</b></td></tr></table></div>
-    <div class="card"><b>Terms</b><p class="mute">${esc(p.terms)}</p></div>
-    <div class="card" id="dep"></div>
-    <div class="card" id="sign"></div>`;
+      <div class="card"><b>Terms</b><p class="mute">${esc(p.terms)}</p></div>`;
+  }
+  app.innerHTML = body + `<div class="card noprint" id="dep"></div><div class="card noprint" id="sign"></div>`;
+  const pr = document.getElementById("pr"); if (pr) pr.onclick = () => window.print();
   renderDeposit(d.deposit);
   const box = document.getElementById("sign");
   if (p.status === "signed") {
