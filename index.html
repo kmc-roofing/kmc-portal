@@ -16,6 +16,7 @@
   .ok{color:#1a7f37;font-weight:700}.mute{color:#6b7280;font-size:13px}
 @media print{.noprint{display:none!important}body{background:#fff}.card{box-shadow:none;border:0}}
 h3{margin:16px 0 6px;font-size:15px}
+.tier{display:flex;align-items:center;border:1px solid #cfd4da;border-radius:8px;padding:12px;margin-bottom:8px}
 </style>
 </head>
 <body>
@@ -46,7 +47,8 @@ async function proposal(token) {
   const d = await rpc("portal_get_proposal", { token });
   if (!d) { app.innerHTML = '<div class="card">This link is not valid or has expired.</div>'; return; }
   const p = d.proposal, c = d.customer;
-  const builder = (p.price_lines || []).length > 0;
+  const tiers = p.tiers || [];
+  const builder = (p.price_lines || []).length > 0 || tiers.length > 0;
   let body;
   if (builder) {
     const addr = [c.address, [c.city, c.state].filter(Boolean).join(", "), c.zip].filter(Boolean).join(" ");
@@ -63,11 +65,13 @@ async function proposal(token) {
       <div class="mute">Prepared for ${esc(c.name)}${addr ? " &middot; " + esc(addr) : ""}</div>
       <h3>Scope of work</h3>
       <ul>${(p.scope_items || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul>
-      <h3>Price</h3>
+      ${tiers.length ? `<h3>${p.selected_tier ? "Your selection" : "Choose your option"}</h3>
+      ${tiers.filter(t => !p.selected_tier || t.name === p.selected_tier).map(t => `<label class="tier"><input type="radio" name="tier" value="${esc(t.name)}" ${p.selected_tier ? "checked disabled" : ""} style="width:auto;margin:0 10px 0 0"><span style="flex:1"><b>${esc(t.name)}</b><div class="mute">${esc(t.description || "")}</div></span><b>${money(t.amount)}</b></label>`).join("")}` : ""}
+      <h3>${tiers.length ? "Add-ons" : "Price"}</h3>
       <table>${p.price_lines.map(l => `<tr><td>${esc(l.name)}</td><td class="r">${money(l.amount)}</td></tr>`).join("")}
       ${chosen.map(o => `<tr><td>${esc(o.name)}</td><td class="r">${money(o.amount)}</td></tr>`).join("")}
       ${d.deposit && d.deposit.cash_discount ? `<tr><td>Cash discount (5%)</td><td class="r">-${money(base - total)}</td></tr>` : ""}
-      <tr><td><b>Total bid</b></td><td class="r"><b>${money(total)}</b></td></tr></table>
+      ${tiers.length && !p.selected_tier ? "" : `<tr><td><b>Total bid</b></td><td class="r"><b>${money(total)}</b></td></tr>`}</table>
       ${offered.length ? `<h3>Optional upgrades</h3><table>${offered.map(o => `<tr><td>${esc(o.name)}<div class="mute">${esc(o.description || "")}</div></td><td class="r">+${money(o.amount)}</td></tr>`).join("")}</table>` : ""}
       ${p.terms ? `<h3>Terms</h3><p class="mute">${esc(p.terms)}</p>` : ""}
       <button id="pr" class="noprint" style="background:#666;margin-top:12px">Print / save as PDF</button></div>`;
@@ -94,7 +98,9 @@ async function proposal(token) {
       <button id="go">Sign &amp; accept</button>`;
     document.getElementById("go").onclick = async () => {
       const name = document.getElementById("nm").value;
-      const ok = await rpc("portal_sign_proposal", { token, signer: name });
+      const sel = document.querySelector('input[name="tier"]:checked');
+      if (tiers.length && !sel) { alert("Please choose Good, Better or Best first."); return; }
+      const ok = await rpc("portal_sign_proposal", { token, signer: name, tier: sel ? sel.value : null });
       if (ok) proposal(token); else alert("Please type your full name.");
     };
   }
